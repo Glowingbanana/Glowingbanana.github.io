@@ -1,6 +1,6 @@
 /* ========= Config ========= */
 const CONFIG = {
-  NORMALIZE_CURRENCY_TO: null, // set to 'SGD' if you want "Singapore Dollar" normalized
+  NORMALIZE_CURRENCY_TO: null,
   DATE_FORMAT: 'dd/mm/yyyy',
   EXCLUDE_DRAFT_DEFAULT: false,
   MIN_DIGITAL_TEXT_LEN: 20,
@@ -10,8 +10,8 @@ const CONFIG = {
 
 /* ========= Globals ========= */
 let selectedFile = null;
-let extractedDataRaw = ''; // preview only
-let exportRows = []; // final rows (one per line item)
+let extractedDataRaw = '';
+let exportRows = [];
 let ocrReady = false;
 
 /* ========= PDF.js Worker ========= */
@@ -33,13 +33,13 @@ const btnConvert = document.getElementById('btnConvert');
 const btnDownload = document.getElementById('btnDownload');
 const textInput = document.getElementById('textInput');
 
-/* ========= Tesseract OCR Worker ========= */
+/* ========= Tesseract OCR ========= */
 const ocrWorker = Tesseract.createWorker({
   workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
   corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.0.0/tesseract-core.wasm.js',
   langPath: 'https://tessdata.projectnaptha.com/4.0.0',
   logger: m => {
-    if (m && m.status && typeof m.progress === 'number') {
+    if (m?.status && typeof m.progress === 'number') {
       showStatus(`${m.status} ${(m.progress * 100).toFixed(0)}%`, 'loading');
     }
   }
@@ -68,30 +68,22 @@ uploadArea.addEventListener('drop', e => {
   const f = e.dataTransfer.files?.[0];
   if (f) handleFile(f);
 });
-
 fileInput.addEventListener('change', e => {
   const f = e.target.files?.[0];
   if (f) handleFile(f);
 });
 
 function handleFile(file) {
-  const isPdf =
-    file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-  if (!isPdf) return showStatus('Please select a PDF file', 'error');
-
+  if (!(file.type === 'application/pdf' || /\.pdf$/i.test(file.name))) {
+    return showStatus('Please select a PDF file', 'error');
+  }
   selectedFile = file;
   fileNameEl.textContent = `File: ${file.name}`;
-  const sizeMB = file.size / 1024 / 1024;
-  fileSizeEl.textContent =
-    sizeMB >= 0.1
-      ? `Size: ${sizeMB.toFixed(2)} MB`
-      : `Size: ${(file.size / 1024).toFixed(0)} KB`;
-
+  fileSizeEl.textContent = `Size: ${(file.size / 1024 / 1024).toFixed(2)} MB`;
   fileInfo.classList.add('show');
   btnConvert.disabled = false;
   btnDownload.style.display = 'none';
   preview.classList.remove('show');
-  extractedDataRaw = '';
   exportRows = [];
   excludeDraftCb.checked = CONFIG.EXCLUDE_DRAFT_DEFAULT;
   showStatus(`Ready to convert: ${file.name}`, 'success');
@@ -104,8 +96,6 @@ function showStatus(msg, type = 'loading') {
 
 /* ========= Convert ========= */
 async function convertPDF() {
-  if (!selectedFile) return;
-
   btnConvert.disabled = true;
   showStatus('Opening PDF…', 'loading');
 
@@ -113,8 +103,9 @@ async function convertPDF() {
     const arrayBuffer = await selectedFile.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
+    const invoices = new Map();
+    let currentInvoiceNo = null;
     extractedDataRaw = '';
-    exportRows = [];
 
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
@@ -122,7 +113,7 @@ async function convertPDF() {
 
       if (!forceOCRCb.checked) {
         const tc = await page.getTextContent();
-        pageText = tc.items.map(x => x.str).join(' ').replace(/\s+/g, ' ');
+        pageText = tc.items.map(x => x.str).join(' ').replace(/\s+/g, ' ').trim();
       }
 
       if (
@@ -130,37 +121,60 @@ async function convertPDF() {
         !pageText ||
         pageText.length < CONFIG.MIN_DIGITAL_TEXT_LEN
       ) {
-        const viewport = page.getViewport({ scale: CONFIG.OCR_SCALE });
+        const vp = page.getViewport({ scale: CONFIG.OCR_SCALE });
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        await page.render({ canvasContext: ctx, viewport }).promise;
-
+        canvas.width = vp.width;
+        canvas.height = vp.height;
+        await page.render({ canvasContext: ctx, viewport: vp }).promise;
         await ensureOCR();
-        const {
-          data: { text }
-        } = await ocrWorker.recognize(canvas);
-        pageText = text.replace(/\s+/g, ' ');
+        const { data } = await ocrWorker.recognize(canvas);
+        pageText = data.text.replace(/\s+/g, ' ').trim();
       }
 
       extractedDataRaw += `\n\n--- Page ${i} ---\n${pageText}`;
 
+      const invNo = findInvoiceNo(pageText);
+      if (invNo) currentInvoiceNo = invNo;
+      if (!currentInvoiceNo) continue;
+
+      const inv = getOrCreateInvoice(invoices, currentInvoiceNo);
+      assignHeader(inv.header, extractHeaderFields(pageText));
+      assignTotals(inv.totals, extractTotals(pageText));
+
       const items = extractLineItems(pageText);
-      for (const li of items) {
+      if (items.length) inv.items.push(...items);
+    }
+
+    exportRows = [];
+    invoices.forEach((inv, invNo) => {
+      if (excludeDraftCb.checked && inv.header.invoiceStatus === 'Draft') return;
+      computeTotals(inv);
+
+      for (const li of inv.items) {
         exportRows.push([
-          '', '', '', '', '', '', '', '', '',        // header columns untouched
-          li.lineNo,                               // No.
-          li.description,                          // Description (line)
+          inv.header.vendorId || '',
+          inv.header.attentionTo || '',
+          toExcelDate(inv.header.invoiceDate),
+          inv.header.creditTerm || '',
+          inv.header.invoiceNo || invNo,
+          inv.header.relatedInvoiceNo || '',
+          inv.header.invoiceStatus || '',
+          inv.header.instructionId || '',
+          inv.header.headerDescription || '',
+          li.lineNo,
+          li.description,
           toNumber(li.quantity),
           toNumber(li.unitPrice),
           toNumber(li.grossEx),
           toNumber(li.gstAmount),
           toNumber(li.grossInc),
-          '', '', ''
+          inv.totals.currency || '',
+          toNumber(inv.totals.subtotal),
+          toNumber(inv.totals.gst)
         ]);
       }
-    }
+    });
 
     previewContent.textContent =
       extractedDataRaw.substring(0, 800) +
@@ -170,13 +184,13 @@ async function convertPDF() {
 
     showStatus(
       exportRows.length
-        ? `Parsed ${exportRows.length} line item row(s).`
-        : 'No line items found.',
+        ? `Parsed ${exportRows.length} row(s)`
+        : 'No line items found',
       exportRows.length ? 'success' : 'error'
     );
   } catch (err) {
     console.error(err);
-    showStatus(`Error: ${err.message}`, 'error');
+    showStatus(err.message, 'error');
   } finally {
     btnConvert.disabled = false;
   }
@@ -184,53 +198,35 @@ async function convertPDF() {
 
 /* ========= Download ========= */
 function downloadExcel() {
-  if (!exportRows.length)
-    return showStatus('No data to download', 'error');
-
   const headers = [
-    'Vendor ID',
-    'Attention To',
-    'Invoice Date',
-    'Credit Term',
-    'Invoice No',
-    'Related Invoice No',
-    'Invoice Status',
-    'Invoicing Instruction ID',
-    'Description',
-    'No.',
-    'Description',
-    'Quantity',
-    'Unit Price',
-    'Gross Amt (EX. GST)',
-    'GST @ 9%',
-    'Gross Amt (Inc. GST)',
-    'Currency',
-    'Sub Total (Excluding GST)',
-    'Total GST Payable'
+    'Vendor ID','Attention To','Invoice Date','Credit Term','Invoice No',
+    'Related Invoice No','Invoice Status','Invoicing Instruction ID',
+    'Description','No.','Description','Quantity','Unit Price',
+    'Gross Amt (Ex. GST)','GST @ 9%','Gross Amt (Inc. GST)',
+    'Currency','Sub Total (Excluding GST)','Total GST Payable'
   ];
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet([headers, ...exportRows]);
   XLSX.utils.book_append_sheet(wb, ws, 'Invoice Lines');
-
-  const outName = selectedFile.name.replace(/\.pdf$/i, '') + '.xlsx';
-  XLSX.writeFile(wb, outName);
+  XLSX.writeFile(wb, selectedFile.name.replace(/\.pdf$/i, '') + '.xlsx');
 }
 
 /* ========= Helpers ========= */
-function toNumber(v) {
-  if (v === '' || v == null) return '';
-  const n = parseFloat(String(v).replace(/,/g, ''));
-  return Number.isFinite(n) ? n : '';
+function normalize(s){ return (s||'').replace(/\u00A0/g,' ').replace(/\s+/g,' ').trim(); }
+function toNumber(v){ if(v==null||v==='')return''; const n=parseFloat(String(v).replace(/,/g,'')); return Number.isFinite(n)?n:''; }
+function toExcelDate(s){ const m=s?.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/); if(!m)return''; return new Date(`20${m[3]}`.slice(-4),m[2]-1,m[1]); }
+
+function getOrCreateInvoice(map,no){
+  if(!map.has(no))map.set(no,{header:{invoiceNo:no},items:[],totals:{}});
+  return map.get(no);
 }
 
-/* ===========================================================
-   ✅ ONLY FIXED FUNCTION – NOTHING ELSE CHANGED
-   =========================================================== */
-function extractLineItems(text) {
+/* ========= ✅ FIXED LINE ITEMS ========= */
+function extractLineItems(text){
   const items = [];
   const rx =
-    /(?:^|\s)(\d{1,3})\s+(.+?)\s+([0-9,]+\.\d{2,5})\s+0\s+([0-9.]+)\s+([0-9,]+\.\d{2})\s+([0-9,]+\.\d{2})\s+([0-9,]+\.\d{2})(?=\s|$)/g;
+    /(?:^|\s)(\d{1,3})\s+(.+?)\s+([0-9,]+\.\d{2,5})\s+0\s+([0-9]+(?:\.\d+)?)\s+([0-9,]+\.\d{2})\s+([0-9,]+\.\d{2})\s+([0-9,]+\.\d{2})(?=\s|$)/g;
 
   let m;
   while ((m = rx.exec(text)) !== null) {
