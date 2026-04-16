@@ -503,9 +503,8 @@
             <input type="file" id="fileInput" accept=".pdf,application/pdf" />
             <span class="upload-icon">📄</span>
             <div class="upload-title">Drop PDF here or click to browse</div>
-            <div class="upload-hint">Supports digital & scanned invoices · OCR enabled</div>
+            <div class="upload-hint">Supports digital &amp; scanned invoices · OCR enabled</div>
         </div>
-
         <div style="margin-top: 0.75rem;">
             <div class="file-info" id="fileInfo">
                 <div class="file-dot"></div>
@@ -516,6 +515,20 @@
             </div>
         </div>
     </div>
+
+    <!-- Status -->
+    <div class="status" id="status"></div>
+
+    <!-- Preview -->
+    <div class="preview" id="preview">
+        <div class="preview-header">
+            <span class="preview-title">Extracted text preview</span>
+            <div class="preview-dots">
+                <span style="background:#f87171"></span>
+                <span style="background:#fbbf24"></span>
+                <span style="background:#4ade80"></span>
+            </div>
+        </div>
         <div id="previewContent"></div>
     </div>
 
@@ -529,12 +542,10 @@
     <div class="footer">Handles digital PDFs · Scanned PDFs (OCR) · Split pages</div>
 </div>
 
-<script>console.log('Build: InvoiceExtractor v2.0');</script>
+<script>console.log('Build: InvoiceExtractor v3.0');</script>
 <script src="script.js?v=3.0"></script>
 
-<!-- Override showStatus to handle loading spinner -->
 <script>
-    const _origShow = window.showStatus;
     window.showStatus = function(msg, type) {
         const el = document.getElementById('status');
         el.className = `status show ${type}`;
