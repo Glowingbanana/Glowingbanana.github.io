@@ -404,15 +404,56 @@ function downloadExcel() {
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet([headers, ...exportRows]);
 
-    /* ── Column widths ── */
-    ws['!cols'] = [
-        { wch: 12 }, { wch: 20 }, { wch: 14 }, { wch: 14 },
-        { wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 24 },
-        { wch: 30 }, { wch: 6  }, { wch: 30 }, { wch: 10 },
-        { wch: 12 }, { wch: 18 }, { wch: 12 }, { wch: 18 },
-        { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 16 },
-        { wch: 20 }
-    ];
+    /* ── Column widths (auto-fit based on header length) ── */
+    ws['!cols'] = headers.map((h, i) => {
+        const dataMax = exportRows.reduce((max, row) => {
+            const v = row[i] != null ? String(row[i]) : '';
+            return Math.max(max, v.length);
+        }, 0);
+        return { wch: Math.max(h.length, dataMax) + 4 };
+    });
+
+    /* ── Header row styling: light blue background, bold, centered ── */
+    const headerStyle = {
+        font:      { bold: true, color: { rgb: '1F3864' } },
+        fill:      { fgColor: { rgb: 'BDD7EE' } },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+        border: {
+            top:    { style: 'thin', color: { rgb: 'A0C4E2' } },
+            bottom: { style: 'thin', color: { rgb: 'A0C4E2' } },
+            left:   { style: 'thin', color: { rgb: 'A0C4E2' } },
+            right:  { style: 'thin', color: { rgb: 'A0C4E2' } }
+        }
+    };
+
+    headers.forEach((_, i) => {
+        const cellRef = XLSX.utils.encode_cell({ r: 0, c: i });
+        if (ws[cellRef]) ws[cellRef].s = headerStyle;
+    });
+
+    /* ── Data rows: center all cells, alternate row shading ── */
+    const dataStyle = {
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: false }
+    };
+    const altStyle = {
+        fill:      { fgColor: { rgb: 'F2F8FD' } },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: false }
+    };
+
+    exportRows.forEach((row, rowIdx) => {
+        row.forEach((_, colIdx) => {
+            const cellRef = XLSX.utils.encode_cell({ r: rowIdx + 1, c: colIdx });
+            if (ws[cellRef]) {
+                ws[cellRef].s = rowIdx % 2 === 0 ? dataStyle : altStyle;
+            }
+        });
+    });
+
+    /* ── Freeze header row ── */
+    ws['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft' };
+
+    /* ── Row height: taller header ── */
+    ws['!rows'] = [{ hpt: 30 }];
 
     XLSX.utils.book_append_sheet(wb, ws, 'Invoice Lines');
     XLSX.writeFile(wb, selectedFile.name.replace(/\.pdf$/i, '') + '.xlsx');
