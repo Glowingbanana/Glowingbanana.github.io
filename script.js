@@ -234,12 +234,12 @@ function parsePage(text) {
     const t = text.replace(/\u00A0/g, ' ').replace(/[ \t]+/g, ' ');
 
     return [
-        /* 01 */ grab(t, /Vendor\s*ID\s*[:\-]\s*([A-Z0-9]+)/i),
+        /* 01 */ grab(t, /Vendor\s*ID\s*[:\-]\s*([A-Z0-9]+?)(?=\s+Attention|\s*\n|\s*$)/im),
         /* 02 */ grab(t, /Attention\s*To\s*[:\-]\s*([^\n\r]+)/i),
         /* 03 */ toExcelDate(grab(t, /Invoice\s*Date\s*[:\-]\s*([\d\/\-]+)/i)),
         /* 04 */ grab(t, /Credit\s*Term\s*[:\-]\s*([^\n\r]+)/i),
         /* 05 */ grab(t, /Invoice\s*No\s*[:\-]\s*([A-Z0-9\/\-]+)/i),
-        /* 06 */ grab(t, /Related\s*Invoice\s*No\s*[:\-]\s*([A-Z0-9\/\-]+)(?!\s*Invoice)/i) || '',
+        /* 06 */ grabRelatedInvoiceNo(t),
         /* 07 */ grab(t, /Invoice\s*Status\s*[:\-]\s*([A-Za-z]+)/i),
         /* 08 */ grab(t, /Invoicing\s*Instruction\s*(?:ID)?\s*[:\-]\s*([^\n\r]+)/i),
         /* 09 */ grabHeaderDescription(t),
@@ -274,6 +274,21 @@ function grabHeaderDescription(text) {
     /* Split at the table header row so we only look in the header section */
     const headerSection = text.split(/\bNo\.?\s+Description\b/i)[0] || text;
     return grab(headerSection, /\bDescription\s*[:\-]\s*([^\n\r]+)/i);
+}
+
+/**
+ * Related Invoice No — only return a value if it starts with a letter (real invoice no).
+ * When the field is blank, the next text on that line is either empty, a digit fragment,
+ * or "Invoice Status" — all of which we reject, returning blank instead.
+ */
+function grabRelatedInvoiceNo(text) {
+    const m = text.match(/Related\s*Invoice\s*No\s*[:\-]\s*([^\n\r]*)/i);
+    if (!m) return '';
+    const val = m[1].trim();
+    // Must start with a letter to be a valid invoice number (e.g. MA311-...)
+    if (!val || !/^[A-Za-z]/.test(val)) return '';
+    // Stop if "Invoice" keyword bleeds onto same line
+    return val.split(/\s+Invoice\b/i)[0].trim();
 }
 
 /**
