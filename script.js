@@ -251,7 +251,7 @@ function parsePage(text) {
     return [
         /* 01 */ grabVendorID(t),
         /* 02 */ grab(t, new RegExp(`Attention\\s*To${SEP}([^\\n\\r]+?)(?=\\s*Invoice\\s*Date|\\s*$)`, 'i')),
-        /* 03 */ toExcelDate(grab(t, new RegExp(`Invoice\\s*Date${SEP}([\\d\\/\\-]+)`, 'i'))),
+        /* 03 */ toExcelDate(grab(t, new RegExp(`Invoice\\s*Date${SEP}(?:\\d\\s+)?(\\d{1,2}[\\.\\/\\-]\\d{1,2}[\\.\\/\\-]\\d{2,4})`, 'i'))),
         /* 04 */ grab(t, new RegExp(`Credit\\s*Term${SEP}([^\\n\\r]+?)(?=\\s*Invoice\\s*No|\\s*$)`, 'i')),
         /* 05 */ grab(t, new RegExp(`(?<!Related\\s*)Invoice\\s*No${SEP}([A-Z0-9\\/\\-]+)`, 'i')),
         /* 06 */ grabRelatedInvoiceNo(t),
@@ -265,7 +265,7 @@ function parsePage(text) {
         /* 14 */ toNumber(grabTableCol(t, 'grossex')),
         /* 15 */ toNumber(grabTableCol(t, 'gst')),
         /* 16 */ toNumber(grabTableCol(t, 'grossinc')),
-        /* 17 */ grab(t, new RegExp(`Currency\w*${SEP}([^\\n\\r]+)`, 'i')),
+        /* 17 */ grab(t, new RegExp(`Currency${SEP}([^\\n\\r]+)`, 'i')),
         /* 18 */ toNumber(grab(t, new RegExp(`Sub\\s*Total\\s*\\(?Excluding\\s*GST\\)?${SEP}([\\d\\s,\\.]+)`, 'i'))),
         /* 19 */ toNumber(grab(t, new RegExp(`Total\\s*GST\\s*Payable${SEP}([\\d\\s,\\.]+)`, 'i'))),
         /* 20 */ toNumber(grab(t, new RegExp(`Freight\\s*Amount${SEP}([\\d\\s,\\.]+)`, 'i'))),
