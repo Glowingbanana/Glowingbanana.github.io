@@ -115,11 +115,11 @@ async function convertPDF() {
 
             if (isContinuation) {
                 const lastRow = exportRows[exportRows.length - 1];
-                const currency = grab(pageText, /Currency\s*[:\-]\s*([^\n\r]+)/i);
-                const subtotal = toNumber(grab(pageText, /Sub\s*Total\s*\(?Excluding\s*GST\)?\s*[:\-]\s*([0-9,\.]+)/i));
-                const gst      = toNumber(grab(pageText, /Total\s*GST\s*Payable\s*[:\-]\s*([0-9,\.]+)/i));
-                const freight  = toNumber(grab(pageText, /Freight\s*Amount\s*[:\-]\s*([0-9,\.]+)/i));
-                const total    = toNumber(grab(pageText, /Total\s*Invoice\s*Amount\s*[:\-]\s*([0-9,\.]+)/i));
+                const currency = grab(pageText, /Currency\s*(?:[:\-]\s*|\s+)([^\n\r]+)/i);
+                const subtotal = toNumber(grab(pageText, /Sub\s*Total\s*\(?Excluding\s*GST\)?\s*(?:[:\-]\s*|\s+)([\d\s,\.]+)/i));
+                const gst      = toNumber(grab(pageText, /Total\s*GST\s*Payable\s*(?:[:\-]\s*|\s+)([\d\s,\.]+)/i));
+                const freight  = toNumber(grab(pageText, /Freight\s*Amount\s*(?:[:\-]\s*|\s+)([\d\s,\.]+)/i));
+                const total    = toNumber(grab(pageText, /Total\s*Invoice\s*Amount\s*(?:[:\-]\s*|\s+)([\d\s,\.]+)/i));
                 if (currency) lastRow[16] = currency;
                 if (subtotal !== '') lastRow[17] = subtotal;
                 if (gst      !== '') lastRow[18] = gst;
@@ -136,7 +136,7 @@ async function convertPDF() {
             }
 
             /* ── Exclude drafts if requested ── */
-            const status = grab(pageText, /Invoice\s*Status\s*[:\-]\s*([A-Za-z]+)/i);
+            const status = grab(pageText, /Invoice\s*Status\s*(?:[:\-]\s*|\s+)([A-Za-z]+)/i);
             if (excludeDraftCb.checked && /draft/i.test(status || '')) continue;
 
             /* ── Parse & push row ── */
@@ -203,18 +203,23 @@ function looksLikeInvoice(text) {
 }
 
 /* ========= PARSE ONE PAGE → ONE ROW ========= */
+/*
+ * SEP = separator pattern: handles both "Field: value" and "Field value" (Adobe OCR omits colons)
+ */
+const SEP = '(?:[:\\-]\\s*|\\s+)';
+
 function parsePage(text) {
     const t = text.replace(/\u00A0/g, ' ').replace(/[ \t]+/g, ' ');
 
     return [
-        /* 01 */ grab(t, /Vendor\s*ID\s*[:\-]\s*([A-Z0-9]+?)(?=\s+Attention|\s*\n|\s*$)/im),
-        /* 02 */ grab(t, /Attention\s*To\s*[:\-]\s*([^\n\r]+)/i),
-        /* 03 */ toExcelDate(grab(t, /Invoice\s*Date\s*[:\-]\s*([\d\/\-]+)/i)),
-        /* 04 */ grab(t, /Credit\s*Term\s*[:\-]\s*([^\n\r]+)/i),
-        /* 05 */ grab(t, /Invoice\s*No\s*[:\-]\s*([A-Z0-9\/\-]+)/i),
+        /* 01 */ grab(t, new RegExp(`Vendor\\s*ID${SEP}([A-Z0-9]+?)(?=\\s+Attention|\\s*\\n|\\s*$)`, 'im')),
+        /* 02 */ grab(t, new RegExp(`Attention\\s*To${SEP}([^\\n\\r]+?)(?=\\s*Invoice\\s*Date|\\s*$)`, 'i')),
+        /* 03 */ toExcelDate(grab(t, new RegExp(`Invoice\\s*Date${SEP}([\\d\\/\\-]+)`, 'i'))),
+        /* 04 */ grab(t, new RegExp(`Credit\\s*Term${SEP}([^\\n\\r]+?)(?=\\s*Invoice\\s*No|\\s*$)`, 'i')),
+        /* 05 */ grab(t, new RegExp(`(?<!Related\\s*)Invoice\\s*No${SEP}([A-Z0-9\\/\\-]+)`, 'i')),
         /* 06 */ grabRelatedInvoiceNo(t),
-        /* 07 */ grab(t, /Invoice\s*Status\s*[:\-]\s*([A-Za-z]+)/i),
-        /* 08 */ grab(t, /Invoicing\s*Instruction\s*(?:ID)?\s*[:\-]\s*([^\n\r]+)/i),
+        /* 07 */ grab(t, new RegExp(`Invoice\\s*Status${SEP}([A-Za-z]+)`, 'i')),
+        /* 08 */ grab(t, new RegExp(`Invoice(?:ing)?\\s*Instruction\\s*(?:ID)?${SEP}([^\\n\\r]+)`, 'i')),
         /* 09 */ grabHeaderDescription(t),
         /* 10 */ grabLineNo(t),
         /* 11 */ grabLineDescription(t),
@@ -223,11 +228,11 @@ function parsePage(text) {
         /* 14 */ toNumber(grabTableCol(t, 'grossex')),
         /* 15 */ toNumber(grabTableCol(t, 'gst')),
         /* 16 */ toNumber(grabTableCol(t, 'grossinc')),
-        /* 17 */ grab(t, /Currency\s*[:\-]\s*([^\n\r]+)/i),
-        /* 18 */ toNumber(grab(t, /Sub\s*Total\s*\(?Excluding\s*GST\)?\s*[:\-]\s*([0-9,\.]+)/i)),
-        /* 19 */ toNumber(grab(t, /Total\s*GST\s*Payable\s*[:\-]\s*([0-9,\.]+)/i)),
-        /* 20 */ toNumber(grab(t, /Freight\s*Amount\s*[:\-]\s*([0-9,\.]+)/i)),
-        /* 21 */ toNumber(grab(t, /Total\s*Invoice\s*Amount\s*[:\-]\s*([0-9,\.]+)/i))
+        /* 17 */ grab(t, new RegExp(`Currency${SEP}([^\\n\\r]+)`, 'i')),
+        /* 18 */ toNumber(grab(t, new RegExp(`Sub\\s*Total\\s*\\(?Excluding\\s*GST\\)?${SEP}([\\d\\s,\\.]+)`, 'i'))),
+        /* 19 */ toNumber(grab(t, new RegExp(`Total\\s*GST\\s*Payable${SEP}([\\d\\s,\\.]+)`, 'i'))),
+        /* 20 */ toNumber(grab(t, new RegExp(`Freight\\s*Amount${SEP}([\\d\\s,\\.]+)`, 'i'))),
+        /* 21 */ toNumber(grab(t, new RegExp(`Total\\s*Invoice\\s*Amount${SEP}([\\d\\s,\\.]+)`, 'i')))
     ];
 }
 
@@ -240,11 +245,11 @@ function grab(text, regex) {
 
 function grabHeaderDescription(text) {
     const headerSection = text.split(/\bNo\.?\s+Description\b/i)[0] || text;
-    return grab(headerSection, /\bDescription\s*[:\-]\s*([^\n\r]+)/i);
+    return grab(headerSection, /\bDescription\s*(?:[:\-]\s*|\s+)([^\n\r]+)/i);
 }
 
 function grabRelatedInvoiceNo(text) {
-    const m = text.match(/Related\s*Invoice\s*No\s*[:\-]\s*(.*?)(?=Invoice\s*Status|Invoice\s*No\b|$)/is);
+    const m = text.match(/Related\s*Invoice\s*No\s*(?:[:\-]\s*|\s+)?(.*?)(?=Invoice\s*Status|Invoice\s*No\b|$)/is);
     if (!m) return '';
     const val = m[1].replace(/\s+/g, ' ').trim();
     if (!val || /Invoice/i.test(val)) return '';
@@ -264,7 +269,7 @@ function grabLineDescription(text) {
     if (!tableSection) return '';
 
     const m = tableSection.match(
-        /^\s*\d{1,3}\s+([\s\S]+?)\s+\d[\d,]*\.?\d*\s+\d[\d,]*\.?\d*/m
+        /^\s*\d{1,3}\s+([\s\S]+?)\s+[\d\s,]+\.?\d*\s+[\d\s,]+\.?\d*/m
     );
     if (m) return m[1].replace(/\s+/g, ' ').trim();
 
@@ -283,8 +288,13 @@ function grabTableCol(text, col) {
     const tableSection = getTableSection(text);
     if (!tableSection) return '';
 
+    /*
+     * Numbers may have spaces injected by Adobe OCR e.g. "17 ,220.000"
+     * Pattern: [\d][\d\s,]*\.?\d*  matches numbers with optional spaces/commas
+     */
+    const NUM = '([\\d][\\d\\s,]*\\.?\\d*)';
     const rowMatch = tableSection.match(
-        /^\s*\d{1,3}\s+[\s\S]+?([\d,]+\.?\d*)\s+([\d,]+\.?\d*)\s+([\d,]+\.?\d*)\s+([\d,]+\.?\d*)\s+([\d,]+\.?\d*)\s*$/m
+        new RegExp(`^\\s*\\d{1,3}\\s+[\\s\\S]+?${NUM}\\s+${NUM}\\s+${NUM}\\s+${NUM}\\s+${NUM}\\s*$`, 'm')
     );
 
     if (!rowMatch) return '';
@@ -372,7 +382,8 @@ async function downloadExcel() {
 /* ========= HELPERS ========= */
 function toNumber(v) {
     if (v == null || v === '') return '';
-    const n = parseFloat(String(v).replace(/,/g, ''));
+    /* Strip spaces too — Adobe OCR injects spaces into numbers e.g. "17 ,220.00" */
+    const n = parseFloat(String(v).replace(/\s/g, '').replace(/,/g, ''));
     return Number.isFinite(n) ? n : '';
 }
 
