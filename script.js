@@ -2,15 +2,13 @@
 const CONFIG = {
     DATE_FORMAT: 'dd/mm/yyyy',
     EXCLUDE_DRAFT_DEFAULT: false,
-    MIN_DIGITAL_TEXT_LEN: 30,
-    OCR_SCALE: 2.5
+    MIN_DIGITAL_TEXT_LEN: 30
 };
 
 /* ========= Globals ========= */
 let selectedFile = null;
 let extractedDataRaw = '';
 let exportRows = [];
-let ocrWorker = null;
 
 /* ========= PDF.js Worker ========= */
 pdfjsLib.GlobalWorkerOptions.workerSrc =
@@ -19,7 +17,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 /* ========= DOM ========= */
 const uploadArea    = document.getElementById('uploadArea');
 const fileInput     = document.getElementById('fileInput');
-const forceOCRCb    = document.getElementById('forceOCR') || { checked: false };
 const excludeDraftCb= document.getElementById('excludeDraft') || { checked: false };
 const statusEl      = document.getElementById('status');
 const fileInfo      = document.getElementById('fileInfo');
@@ -29,22 +26,6 @@ const preview       = document.getElementById('preview');
 const previewContent= document.getElementById('previewContent');
 const btnConvert    = document.getElementById('btnConvert');
 const btnDownload   = document.getElementById('btnDownload');
-
-/* ========= OCR ========= */
-async function ensureOCR() {
-    if (ocrWorker) return;
-    showStatus('Loading OCR engine…', 'loading');
-    ocrWorker = await Tesseract.createWorker('eng', 1, {
-        workerPath : 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
-        corePath   : 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.0.0/tesseract-core.wasm.js',
-        langPath   : 'https://tessdata.projectnaptha.com/4.0.0',
-        logger: m => {
-            if (m?.status && typeof m.progress === 'number') {
-                showStatus(`OCR: ${m.status} ${(m.progress * 100).toFixed(0)}%`, 'loading');
-            }
-        }
-    });
-}
 
 /* ========= UI Events ========= */
 uploadArea.addEventListener('click', () => fileInput.click());
@@ -115,29 +96,14 @@ async function convertPDF() {
         for (let i = 1; i <= total; i++) {
             showStatus(`Processing page ${i} of ${total}…`, 'loading');
             const page = await pdf.getPage(i);
-            let pageText = '';
 
-            /* ── Try digital text first ── */
-            if (!forceOCRCb.checked) {
-                const tc = await page.getTextContent();
-                pageText = buildPageText(tc.items);
-            }
+            /* ── Digital text only ── */
+            const tc = await page.getTextContent();
+            const pageText = buildPageText(tc.items);
 
-            /* ── Fall back to OCR if needed ── */
-            const needsOCR = forceOCRCb.checked ||
-                             !pageText ||
-                             pageText.length < CONFIG.MIN_DIGITAL_TEXT_LEN;
-
-            if (needsOCR) {
-                const vp      = page.getViewport({ scale: CONFIG.OCR_SCALE });
-                const canvas  = document.createElement('canvas');
-                const ctx     = canvas.getContext('2d', { willReadFrequently: true });
-                canvas.width  = vp.width;
-                canvas.height = vp.height;
-                await page.render({ canvasContext: ctx, viewport: vp }).promise;
-                await ensureOCR();
-                const { data } = await ocrWorker.recognize(canvas);
-                pageText = data.text;
+            if (!pageText || pageText.length < CONFIG.MIN_DIGITAL_TEXT_LEN) {
+                console.log(`Page ${i}: skipped (no digital text found — scanned page)`);
+                continue;
             }
 
             extractedDataRaw += `\n\n--- Page ${i} ---\n${pageText}`;
@@ -148,7 +114,6 @@ async function convertPDF() {
             const isContinuation = hasTotals && !hasHeader && exportRows.length > 0;
 
             if (isContinuation) {
-                /* Merge totals into the last row */
                 const lastRow = exportRows[exportRows.length - 1];
                 const currency = grab(pageText, /Currency\s*[:\-]\s*([^\n\r]+)/i);
                 const subtotal = toNumber(grab(pageText, /Sub\s*Total\s*\(?Excluding\s*GST\)?\s*[:\-]\s*([0-9,\.]+)/i));
@@ -189,7 +154,7 @@ async function convertPDF() {
         showStatus(
             exportRows.length
                 ? `✅ Done — ${exportRows.length} invoice row(s) extracted from ${total} page(s).`
-                : `⚠️ No invoice data found in ${total} page(s). Try enabling Force OCR.`,
+                : `⚠️ This appears to be a scanned PDF. Only digital PDFs are supported.`,
             exportRows.length ? 'success' : 'error'
         );
 
