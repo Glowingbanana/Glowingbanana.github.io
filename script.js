@@ -2,13 +2,15 @@
 const CONFIG = {
     DATE_FORMAT: 'dd/mm/yyyy',
     EXCLUDE_DRAFT_DEFAULT: false,
-    MIN_DIGITAL_TEXT_LEN: 30
+    MIN_DIGITAL_TEXT_LEN: 30,
+    OCR_SCALE: 2.5
 };
 
 /* ========= Globals ========= */
 let selectedFile = null;
 let extractedDataRaw = '';
 let exportRows = [];
+let ocrWorker = null;
 
 /* ========= PDF.js Worker ========= */
 pdfjsLib.GlobalWorkerOptions.workerSrc =
@@ -26,6 +28,22 @@ const preview       = document.getElementById('preview');
 const previewContent= document.getElementById('previewContent');
 const btnConvert    = document.getElementById('btnConvert');
 const btnDownload   = document.getElementById('btnDownload');
+
+/* ========= OCR (Tesseract v5) ========= */
+async function ensureOCR() {
+    if (ocrWorker) return;
+    showStatus('Loading OCR engine…', 'loading');
+    ocrWorker = await Tesseract.createWorker('eng', 1, {
+        workerPath : 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
+        corePath   : 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.0.0/tesseract-core.wasm.js',
+        langPath   : 'https://tessdata.projectnaptha.com/4.0.0',
+        logger: m => {
+            if (m?.status && typeof m.progress === 'number') {
+                showStatus(`OCR: ${m.status} ${(m.progress * 100).toFixed(0)}%`, 'loading');
+            }
+        }
+    });
+}
 
 /* ========= UI Events ========= */
 uploadArea.addEventListener('click', () => fileInput.click());
@@ -96,21 +114,37 @@ async function convertPDF() {
         for (let i = 1; i <= total; i++) {
             showStatus(`Processing page ${i} of ${total}…`, 'loading');
             const page = await pdf.getPage(i);
+            let pageText = '';
 
-            /* ── Digital text only ── */
+            /* ── Try digital text first ── */
             const tc = await page.getTextContent();
-            const pageText = buildPageText(tc.items);
+            pageText = buildPageText(tc.items);
+
+            /* ── Fall back to OCR if page has no/little digital text ── */
+            const needsOCR = !pageText || pageText.length < CONFIG.MIN_DIGITAL_TEXT_LEN;
+
+            if (needsOCR) {
+                const vp      = page.getViewport({ scale: CONFIG.OCR_SCALE });
+                const canvas  = document.createElement('canvas');
+                const ctx     = canvas.getContext('2d', { willReadFrequently: true });
+                canvas.width  = vp.width;
+                canvas.height = vp.height;
+                await page.render({ canvasContext: ctx, viewport: vp }).promise;
+                await ensureOCR();
+                const { data } = await ocrWorker.recognize(canvas);
+                pageText = data.text;
+            }
 
             if (!pageText || pageText.length < CONFIG.MIN_DIGITAL_TEXT_LEN) {
-                console.log(`Page ${i}: skipped (no digital text found — scanned page)`);
+                console.log(`Page ${i}: skipped (no text extracted)`);
                 continue;
             }
 
             extractedDataRaw += `\n\n--- Page ${i} ---\n${pageText}`;
 
             /* ── Check if this is a continuation page (has totals but no invoice header) ── */
-            const hasTotals   = /Sub\s*Total|Total\s*GST|Freight\s*Amount|Total\s*Invoice\s*Amount/i.test(pageText);
-            const hasHeader   = /Vendor\s*ID|Invoice\s*No/i.test(pageText);
+            const hasTotals      = /Sub\s*Total|Total\s*GST|Freight\s*Amount|Total\s*Invoice\s*Amount/i.test(pageText);
+            const hasHeader      = /Vendor\s*ID|Invoice\s*No/i.test(pageText);
             const isContinuation = hasTotals && !hasHeader && exportRows.length > 0;
 
             if (isContinuation) {
@@ -154,7 +188,7 @@ async function convertPDF() {
         showStatus(
             exportRows.length
                 ? `✅ Done — ${exportRows.length} invoice row(s) extracted from ${total} page(s).`
-                : `⚠️ This appears to be a scanned PDF. Only digital PDFs are supported.`,
+                : `⚠️ No invoice data found in ${total} page(s). Try a different PDF.`,
             exportRows.length ? 'success' : 'error'
         );
 
@@ -204,10 +238,10 @@ function looksLikeInvoice(text) {
 
 /* ========= PARSE ONE PAGE → ONE ROW ========= */
 /*
- * SEP matches all three separator styles:
- *   "Field: value"        → colon directly after label
- *   "Field : value"       → space then colon (native digital PDFs)
- *   "Field value"         → just a space (Adobe OCR, no colon)
+ * SEP matches all separator styles:
+ *   "Field: value"   — colon directly after label
+ *   "Field : value"  — space then colon (native digital PDFs)
+ *   "Field value"    — no colon (Tesseract OCR output)
  */
 const SEP = '(?:\\s*[:\\-]\\s*|\\s+)';
 
@@ -291,7 +325,7 @@ function grabTableCol(text, col) {
     const tableSection = getTableSection(text);
     if (!tableSection) return '';
 
-    /* Numbers may have spaces injected by Adobe OCR e.g. "17 ,220.000" */
+    /* Numbers may have spaces injected by OCR e.g. "17 ,220.000" */
     const NUM = '([\\d][\\d\\s,]*\\.?\\d*)';
     const rowMatch = tableSection.match(
         new RegExp(`^\\s*\\d{1,3}\\s+[\\s\\S]+?${NUM}\\s+${NUM}\\s+${NUM}\\s+${NUM}\\s+${NUM}\\s*$`, 'm')
@@ -382,7 +416,7 @@ async function downloadExcel() {
 /* ========= HELPERS ========= */
 function toNumber(v) {
     if (v == null || v === '') return '';
-    /* Strip spaces too — Adobe OCR injects spaces into numbers e.g. "17 ,220.00" */
+    /* Strip spaces — OCR sometimes injects spaces into numbers e.g. "17 ,220.00" */
     const n = parseFloat(String(v).replace(/\s/g, '').replace(/,/g, ''));
     return Number.isFinite(n) ? n : '';
 }
