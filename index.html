@@ -47,7 +47,6 @@
             padding: 2.5rem 1rem 4rem;
         }
 
-        /* subtle grid background */
         body::before {
             content: '';
             position: fixed;
@@ -228,89 +227,6 @@
             margin-top: 1px;
         }
 
-        /* ── Options ── */
-        .options-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 0.6rem;
-        }
-
-        .option-item {
-            display: flex;
-            align-items: center;
-            gap: 0.55rem;
-            font-size: 0.83rem;
-            color: var(--muted);
-            cursor: pointer;
-            padding: 0.6rem 0.85rem;
-            border-radius: var(--radius);
-            border: 1px solid var(--border);
-            background: var(--surface2);
-            transition: border-color 0.2s, color 0.2s;
-            user-select: none;
-        }
-
-        .option-item:hover { border-color: var(--border2); color: var(--text); }
-
-        .option-item input[type="checkbox"] {
-            appearance: none;
-            width: 16px;
-            height: 16px;
-            border: 1.5px solid var(--border2);
-            border-radius: 4px;
-            background: var(--surface);
-            cursor: pointer;
-            flex-shrink: 0;
-            position: relative;
-            transition: background 0.15s, border-color 0.15s;
-        }
-
-        .option-item input[type="checkbox"]:checked {
-            background: var(--accent);
-            border-color: var(--accent);
-        }
-
-        .option-item input[type="checkbox"]:checked::after {
-            content: '';
-            position: absolute;
-            left: 3px; top: 1px;
-            width: 5px; height: 8px;
-            border: 2px solid #0f0f11;
-            border-top: none;
-            border-left: none;
-            transform: rotate(45deg);
-        }
-
-        /* ── Paste Area ── */
-        .paste-label {
-            font-size: 0.8rem;
-            color: var(--muted);
-            margin-bottom: 0.5rem;
-            display: block;
-        }
-
-        textarea {
-            width: 100%;
-            height: 100px;
-            padding: 0.75rem;
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            font-family: 'DM Mono', monospace;
-            font-size: 0.78rem;
-            background: var(--surface2);
-            color: var(--text);
-            resize: vertical;
-            transition: border-color 0.2s;
-            line-height: 1.5;
-        }
-
-        textarea:focus {
-            outline: none;
-            border-color: var(--border2);
-        }
-
-        textarea::placeholder { color: var(--muted); }
-
         /* ── Status ── */
         .status {
             display: none;
@@ -478,7 +394,6 @@
 
         /* ── Responsive ── */
         @media (max-width: 480px) {
-            .options-grid { grid-template-columns: 1fr; }
             .badge { display: none; }
         }
     </style>
@@ -503,7 +418,7 @@
             <input type="file" id="fileInput" accept=".pdf,application/pdf" />
             <span class="upload-icon">📄</span>
             <div class="upload-title">Drop PDF here or click to browse</div>
-            <div class="upload-hint">Supports digital &amp; scanned invoices · OCR enabled</div>
+            <div class="upload-hint">Supports digital &amp; scanned invoices · Auto-detects OCR</div>
         </div>
         <div style="margin-top: 0.75rem;">
             <div class="file-info" id="fileInfo">
@@ -542,8 +457,7 @@
     <div class="footer">Handles digital PDFs · Scanned PDFs (OCR) · Split pages</div>
 </div>
 
-<script>console.log('Build: InvoiceExtractor v3.0');</script>
-<script src="script.js?v=3.0"></script>
+<script src="script.js?v=4.0"></script>
 
 <script>
     window.showStatus = function(msg, type) {
