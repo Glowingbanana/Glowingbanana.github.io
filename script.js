@@ -242,6 +242,11 @@ function looksLikeInvoice(text) {
  *   "Field: value"   — colon directly after label
  *   "Field : value"  — space then colon (native digital PDFs)
  *   "Field value"    — no colon (Tesseract OCR output)
+ *
+ * KEY INSIGHT: In digital PDFs, "Invoicing Instruction ID" and "Description"
+ * are side by side on the same line, so PDF.js outputs them as:
+ * "Invoicing Instruction ID : GVT000EPO25000378 Description : INTSG015..."
+ * We use a lookahead to stop Invoicing Instruction ID before "Description :"
  */
 const SEP = '(?:\\s*[:\\-]\\s*|\\s+)';
 
@@ -250,13 +255,13 @@ function parsePage(text) {
 
     return [
         /* 01 */ grabVendorID(t),
-        /* 02 */ grab(t, new RegExp(`Attention\\s*To${SEP}([^\\n\\r]+?)(?=\\s*Invoice\\s*Date|\\s*$)`, 'i')),
+        /* 02 */ grab(t, new RegExp(`Attention\\s*To${SEP}([^\\n\\r]+?)(?=\\s*Invoice\\s*Date|\\s*\\n|\\s*$)`, 'i')),
         /* 03 */ toExcelDate(grab(t, new RegExp(`Invoice\\s*Date${SEP}(?:\\d\\s+)?(\\d{1,2}[\\.\\/\\-]\\d{1,2}[\\.\\/\\-]\\d{2,4})`, 'i'))),
-        /* 04 */ grab(t, new RegExp(`Credit\\s*Term${SEP}([^\\n\\r]+?)(?=\\s*Invoice\\s*No|\\s*$)`, 'i')),
+        /* 04 */ grab(t, new RegExp(`Credit\\s*Term${SEP}([^\\n\\r]+?)(?=\\s*Invoice\\s*No|\\s*\\n|\\s*$)`, 'i')),
         /* 05 */ grab(t, new RegExp(`(?<!Related\\s*)Invoice\\s*No${SEP}([A-Z0-9\\/\\-]+)`, 'i')),
         /* 06 */ grabRelatedInvoiceNo(t),
         /* 07 */ grab(t, new RegExp(`Invoice\\s*Status${SEP}([A-Za-z]+)`, 'i')),
-        /* 08 */ grab(t, new RegExp(`Invoice(?:ing)?\\s*Instruction\\s*(?:ID)?${SEP}([^\\n\\r]+?)(?=\\s*\\n|\\s*Description\\s*[:\\-]|\\s*$)`, 'i')),
+        /* 08 */ grabInvoicingInstructionID(t),
         /* 09 */ grabHeaderDescription(t),
         /* 10 */ grabLineNo(t),
         /* 11 */ grabLineDescription(t),
@@ -289,12 +294,29 @@ function grabVendorID(text) {
     return m ? m[1].trim() : '';
 }
 
+/**
+ * Invoicing Instruction ID — stops before "Description :" on the same line.
+ * Handles both "Invoicing Instruction ID" and "Invoice Instruction ID".
+ */
+function grabInvoicingInstructionID(text) {
+    /* Lazy match stopping before "Description :" or newline */
+    const m = text.match(/Invoice(?:ing)?\s*Instruction\s*(?:ID)?\s*(?:\s*[:\-]\s*|\s+)(.+?)(?=\s*Description\s*[:\-]|\n|$)/i);
+    return m ? m[1].trim() : '';
+}
+
+/**
+ * Header Description — the "Description :" field above the table.
+ * In digital PDFs this appears on the same line as Invoicing Instruction ID:
+ * "Invoicing Instruction ID : GVT000... Description : INTSG015..."
+ * We specifically look for "Description :" with a colon to avoid matching
+ * the table column header "No. Description".
+ */
 function grabHeaderDescription(text) {
-    /* Only look in the section before the line-item table */
-    const headerSection = text.split(/\bNo\.?\s+Description\b/i)[0] || text;
-    const cleanSection  = headerSection.split(/^\s*\d{1,3}\s+[\[\(A-Za-z]/m)[0] || headerSection;
-    /* Must match "Description :" or "Description:" — not just the word "Description" */
-    return grab(cleanSection, /\bDescription\s*[:\-]\s*([^\n\r]+)/i);
+    /* Look for "Description :" label — requires colon so we don't match table header */
+    const m = text.match(/\bDescription\s*[:\-]\s*(.+?)(?=\s*No\.?\s+Description|\s*$)/is);
+    if (!m) return '';
+    /* Clean up — trim and collapse internal whitespace */
+    return m[1].replace(/\s+/g, ' ').trim();
 }
 
 function grabRelatedInvoiceNo(text) {
@@ -329,19 +351,17 @@ function grabLineDescription(text) {
 /**
  * getTableSection — finds the line item table body.
  * Primary: looks for "No. Description" header row.
- * Fallback: when OCR garbles the header, find the first line that
- *           looks like a line item (digit + bracket/letter text).
+ * Fallback: when OCR garbles the header, find first line item row directly.
  */
 function getTableSection(text) {
     const end = text.search(/Invoice\s*Amount\s*Summary/i);
 
-    /* Primary: clean digital PDF header */
     const start = text.search(/\bNo\.?\s+Description\b/i);
     if (start !== -1) {
         return end > start ? text.slice(start, end) : text.slice(start);
     }
 
-    /* Fallback: OCR garbled header — find first line item row directly */
+    /* Fallback for garbled OCR headers */
     const fallback = text.search(/^\s*\d{1,3}\s+[\[\(A-Za-z]/m);
     if (fallback !== -1) {
         return end > fallback ? text.slice(fallback, end) : text.slice(fallback);
@@ -354,7 +374,6 @@ function grabTableCol(text, col) {
     const tableSection = getTableSection(text);
     if (!tableSection) return '';
 
-    /* Numbers may have spaces injected by OCR e.g. "17 ,220.000" */
     const NUM = '([\\d][\\d\\s,]*\\.?\\d*)';
     const rowMatch = tableSection.match(
         new RegExp(`^\\s*\\d{1,3}\\s+[\\s\\S]+?${NUM}\\s+${NUM}\\s+${NUM}\\s+${NUM}\\s+${NUM}\\s*$`, 'm')
@@ -445,7 +464,6 @@ async function downloadExcel() {
 /* ========= HELPERS ========= */
 function toNumber(v) {
     if (v == null || v === '') return '';
-    /* Strip spaces — OCR sometimes injects spaces into numbers e.g. "17 ,220.00" */
     const n = parseFloat(String(v).replace(/\s/g, '').replace(/,/g, ''));
     return Number.isFinite(n) ? n : '';
 }
