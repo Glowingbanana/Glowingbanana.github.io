@@ -290,7 +290,7 @@ function grab(text, regex) {
  * e.g. "Vendor ID 1 200202851H" — skip any leading single digit/noise.
  */
 function grabVendorID(text) {
-    const m = text.match(/Vendor\s*ID\s*(?:\s*[:\-]\s*|\s+)(?:\d\s+)?([A-Z0-9]{5,})(?=\s+Attention|\s*\n|\s*$)/im);
+    const m = text.match(/Vendor\s*ID\s*(?:\s*[:\-\xA9]\s*|\s+)(?:\d\s+)?([A-Z0-9]{5,})(?=\s+Attention|\s*\n|\s*$)/im);
     return m ? m[1].trim() : '';
 }
 
@@ -358,7 +358,7 @@ function getTableSection(text) {
     }
 
     /* Fallback for garbled OCR headers */
-    const fallback = text.search(/^\s*\d{1,3}\s+[\[\(A-Za-z]/m);
+    const fallback = text.search(/^\s*\d{1,3}\s+(?:[\|\[\(]\s*)?[A-Za-z]/m);
     if (fallback !== -1) {
         return end > fallback ? text.slice(fallback, end) : text.slice(fallback);
     }
