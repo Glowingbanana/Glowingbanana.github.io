@@ -333,7 +333,7 @@ function grabLineDescription(text) {
         const ts = endIdx > startIdx ? text.slice(startIdx, endIdx) : text.slice(startIdx);
         body = ts.replace(/^.*\n/, ''); // skip header line
     } else {
-        const fallback = text.search(/^\s*\d{1,3}\s+(?:[\|\[\(]+\s*)?[A-Za-z]/m);
+        const fallback = text.search(/^\s*\d{1,3}\s*\|/m); // require pipe — avoids matching address lines
         body = fallback !== -1 ? (endIdx > fallback ? text.slice(fallback, endIdx) : text.slice(fallback)) : '';
     }
     if (!body) return '';
@@ -385,7 +385,7 @@ function getTableSection(text) {
     }
 
     /* Fallback for garbled OCR headers */
-    const fallback = text.search(/^\s*\d{1,3}\s+(?:[\|\[\(]+\s*)?[A-Za-z]/m);
+    const fallback = text.search(/^\s*\d{1,3}\s*\|/m); // require pipe — avoids matching address lines
     if (fallback !== -1) {
         return end > fallback ? text.slice(fallback, end) : text.slice(fallback);
     }
