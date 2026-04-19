@@ -326,16 +326,36 @@ function grabLineNo(text) {
 }
 
 function grabLineDescription(text) {
-    const tableSection = getTableSection(text);
-    if (!tableSection) return '';
+    const end = text.search(/Invoice\s*Amount\s*Summary/i);
+    const start = text.search(/\bNo\.?\s+Description\b/i);
+    let body;
+    if (start !== -1) {
+        const ts = end > start ? text.slice(start, end) : text.slice(start);
+        body = ts.replace(/^.*\n/, ''); // skip header line
+    } else {
+        const fallback = text.search(/^\s*\d{1,3}\s+(?:[\|\[\(]+\s*)?[A-Za-z]/m);
+        body = fallback !== -1 ? (end > fallback ? text.slice(fallback, end) : text.slice(fallback)) : '';
+    }
+    if (!body) return '';
 
-    const m = tableSection.match(
-        /^\s*\d{1,3}\s+([\s\S]+?)\s+[\d\s,]+\.?\d*\s+[\d\s,]+\.?\d*/m
-    );
-    if (m) return m[1].replace(/\s+/g, ' ').trim().replace(/^[\|\[\(©\s]+/, '').replace(/[\]\|©\s]+$/, '');
+    /* Collect all description lines until we hit the numeric columns row */
+    const NUM_ROW = /[\d,]+\.?\d*\s+[\d,]+\.?\d*\s+[\d,]+\.?\d*\s+[\d,]+\.?\d*\s+[\d,]+\.?\d*/;
+    const descLines = [];
+    for (const line of body.split('\n')) {
+        if (NUM_ROW.test(line)) {
+            const m = line.match(/^(.*?)\s+[\d,]+\.?\d*\s+[\d,]+\.?\d*\s+[\d,]+\.?\d*\s+[\d,]+\.?\d*\s+[\d,]+\.?\d*\s*$/);
+            if (m && m[1].trim()) descLines.push(m[1]);
+            break;
+        } else {
+            descLines.push(line);
+        }
+    }
 
-    const m2 = tableSection.match(/^\s*\d{1,3}\s+(.+)/m);
-    return m2 ? m2[1].trim() : '';
+    return descLines.join(' ')
+        .replace(/^\s*\d{0,3}\s*[\|\[\(]*\s*/, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/[\]\|©]+$/, '');
 }
 
 /**
