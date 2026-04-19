@@ -300,14 +300,14 @@ function grabVendorID(text) {
  */
 function grabInvoicingInstructionID(text) {
     // Split at "Description :" so we only look in the portion BEFORE it
-    const beforeDesc = text.split(/\bDescription\s*[:\-]/i)[0] || text;
+    const beforeDesc = text.split(/\bDescription\s*(?:[:\-]|\s+\d+)/i)[0] || text;
     const m = beforeDesc.match(/Invoic(?:e|ing)?\s*Instruction\s*(?:ID)?\s*[:\-]\s*([^\n\r]+)/i);
     return m ? m[1].trim() : '';
 }
 
 function grabHeaderDescription(text) {
     // Split at "Description :" and take the part AFTER it
-    const parts = text.split(/\bDescription\s*[:\-]\s*/i);
+    const parts = text.split(/\bDescription\s*(?:[:\-]\s*|\s+\d+\s*)/i);
     if (parts.length < 2) return '';
     const afterDesc = parts[1];
     // Stop at "No. Description" table header or newline
@@ -358,7 +358,7 @@ function getTableSection(text) {
     }
 
     /* Fallback for garbled OCR headers */
-    const fallback = text.search(/^\s*\d{1,3}\s+(?:[\|\[\(]\s*)?[A-Za-z]/m);
+    const fallback = text.search(/^\s*\d{1,3}\s+(?:[\|\[\(]+\s*)?[A-Za-z]/m);
     if (fallback !== -1) {
         return end > fallback ? text.slice(fallback, end) : text.slice(fallback);
     }
@@ -370,7 +370,7 @@ function grabTableCol(text, col) {
     const tableSection = getTableSection(text);
     if (!tableSection) return '';
 
-    const NUM = '([\\d][\\d\\s,]*\\.?\\d*)';
+    const NUM = '([\\d][\\d,]*\\.?\\d*)';
     const rowMatch = tableSection.match(
         new RegExp(`^\\s*\\d{1,3}\\s+[\\s\\S]+?${NUM}\\s+${NUM}\\s+${NUM}\\s+${NUM}\\s+${NUM}\\s*$`, 'm')
     );
