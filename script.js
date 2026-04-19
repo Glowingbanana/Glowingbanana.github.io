@@ -256,7 +256,7 @@ function parsePage(text) {
         /* 05 */ grab(t, new RegExp(`(?<!Related\\s*)Invoice\\s*No${SEP}([A-Z0-9\\/\\-]+)`, 'i')),
         /* 06 */ grabRelatedInvoiceNo(t),
         /* 07 */ grab(t, new RegExp(`Invoice\\s*Status${SEP}([A-Za-z]+)`, 'i')),
-        /* 08 */ grab(t, new RegExp(`Invoice(?:ing)?\\s*Instruction\\s*(?:ID)?${SEP}([^\\n\\r]+)`, 'i')),
+        /* 08 */ grab(t, new RegExp(`Invoice(?:ing)?\\s*Instruction\\s*(?:ID)?${SEP}([^\\n\\r]+?)(?=\\s*\\n|\\s*Description\\s*[:\\-]|\\s*$)`, 'i')),
         /* 09 */ grabHeaderDescription(t),
         /* 10 */ grabLineNo(t),
         /* 11 */ grabLineDescription(t),
@@ -290,10 +290,11 @@ function grabVendorID(text) {
 }
 
 function grabHeaderDescription(text) {
+    /* Only look in the section before the line-item table */
     const headerSection = text.split(/\bNo\.?\s+Description\b/i)[0] || text;
-    /* Also handle OCR garbling the table header — split at line item start */
-    const cleanSection = headerSection.split(/^\s*\d{1,3}\s+[\[\(A-Za-z]/m)[0] || headerSection;
-    return grab(cleanSection, /\bDescription\s*(?:\s*[:\-]\s*|\s+)(?:\d\s+)?([^\n\r]+)/i);
+    const cleanSection  = headerSection.split(/^\s*\d{1,3}\s+[\[\(A-Za-z]/m)[0] || headerSection;
+    /* Must match "Description :" or "Description:" — not just the word "Description" */
+    return grab(cleanSection, /\bDescription\s*[:\-]\s*([^\n\r]+)/i);
 }
 
 function grabRelatedInvoiceNo(text) {
