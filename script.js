@@ -326,32 +326,38 @@ function grabLineNo(text) {
 }
 
 function grabLineDescription(text) {
-    const end = text.search(/Invoice\s*Amount\s*Summary/i);
-    const start = text.search(/\bNo\.?\s+Description\b/i);
+    const endIdx = text.search(/Invoice\s*Amount\s*Summary/i);
+    const startIdx = text.search(/\bNo\.?\s+Description\b/i);
     let body;
-    if (start !== -1) {
-        const ts = end > start ? text.slice(start, end) : text.slice(start);
+    if (startIdx !== -1) {
+        const ts = endIdx > startIdx ? text.slice(startIdx, endIdx) : text.slice(startIdx);
         body = ts.replace(/^.*\n/, ''); // skip header line
     } else {
         const fallback = text.search(/^\s*\d{1,3}\s+(?:[\|\[\(]+\s*)?[A-Za-z]/m);
-        body = fallback !== -1 ? (end > fallback ? text.slice(fallback, end) : text.slice(fallback)) : '';
+        body = fallback !== -1 ? (endIdx > fallback ? text.slice(fallback, endIdx) : text.slice(fallback)) : '';
     }
     if (!body) return '';
 
-    /* Collect all description lines until we hit the numeric columns row */
     const NUM_ROW = /[\d,]+\.?\d*\s+[\d,]+\.?\d*\s+[\d,]+\.?\d*\s+[\d,]+\.?\d*\s+[\d,]+\.?\d*/;
-    const descLines = [];
-    for (const line of body.split('\n')) {
-        if (NUM_ROW.test(line)) {
+    const descParts = [];
+    let foundNumbers = false;
+
+    for (const line of body.split('\n').filter(l => l.trim())) {
+        /* Stop if we hit a new table row after already processing the numbers row */
+        if (foundNumbers && /^\s*\d{1,3}\s+[A-Za-z\|\[\(]/.test(line)) break;
+
+        if (!foundNumbers && NUM_ROW.test(line)) {
+            foundNumbers = true;
+            /* Extract description portion before the 5 numeric columns */
             const m = line.match(/^(.*?)\s+[\d,]+\.?\d*\s+[\d,]+\.?\d*\s+[\d,]+\.?\d*\s+[\d,]+\.?\d*\s+[\d,]+\.?\d*\s*$/);
-            if (m && m[1].trim()) descLines.push(m[1]);
-            break;
-        } else {
-            descLines.push(line);
+            if (m && m[1].trim()) descParts.push(m[1]);
+            /* Don't break — collect any continuation lines below */
+        } else if (!NUM_ROW.test(line)) {
+            descParts.push(line);
         }
     }
 
-    return descLines.join(' ')
+    return descParts.join(' ')
         .replace(/^\s*\d{0,3}\s*[\|\[\(]*\s*/, '')
         .replace(/\s+/g, ' ')
         .trim()
